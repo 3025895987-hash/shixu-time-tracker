@@ -34,8 +34,9 @@ export async function handleApi(request,db,auth) {
     if(request.method==="POST" && request.headers.get("origin") && request.headers.get("origin")!==url.origin) fail("请求来源无效。",403);
     if(path==="/api/access" && request.method==="GET") return json({owner:auth.owner,signed:auth.signed,mode:auth.mode,claimed:auth.claimed});
     if(path==="/api/claim" && request.method==="POST" && auth.claim) return json(await auth.claim(await request.json()));
+    if(path==="/api/pair" && request.method==="POST" && auth.pair) return json(await auth.pair());
     const pub=path==="/api/public";
-    if(!pub && !auth.owner) fail("请使用记录者账户登录。",403);
+    if(!pub && !auth.owner) fail("此操作需要记录权限。",403);
     if((pub || path==="/api/state") && request.method==="GET") {
       const date=url.searchParams.get("date")||dayOf(now);
       if(!validDay(date) || date>dayOf(now)) fail("请选择今天或更早的日期。");

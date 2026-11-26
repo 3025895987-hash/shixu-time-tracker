@@ -1,10 +1,32 @@
 import {DAY,dayOf,midnight,clockText,names,rangeDays} from "./time-model.mjs";
 
-const app=document.getElementById("app"), publicView=location.pathname.replace(/\/$/,"")==="/share";
+const app=document.getElementById("app");
+const sharePage=location.pathname.replace(/\/$/,"")==="/share";
+let publicView=sharePage;
 const queryDay=new URLSearchParams(location.search).get("day");
 let date=queryDay||dayOf(), snapshot, access, busy=false, loadId=0, dialog, toastTimer, clockDay=dayOf(), pinToday=!queryDay;
-const keyFromHash=new URLSearchParams(location.hash.slice(1)).get("key");
-if(keyFromHash){sessionStorage.setItem("shixu-key",keyFromHash);history.replaceState(null,"",location.pathname+location.search);}
+const deviceSlot="shixu-device-v1";
+function deviceKey(){
+  try{return localStorage.getItem(deviceSlot)||""}catch{return ""}
+}
+function rememberDevice(){
+  if(deviceKey())return;
+  const bytes=crypto.getRandomValues(new Uint8Array(32));
+  const device=Array.from(bytes,b=>b.toString(16).padStart(2,"0")).join("");
+  try{localStorage.setItem(deviceSlot,device)}catch{throw new Error("浏览器未允许保存设备。请允许本站存储，再打开个人记录链接。")}
+}
+function pendingLink(){
+  const fragment=new URLSearchParams(location.hash.slice(1));
+  for(const type of ["key","pair"]){if(fragment.get(type))return {type,value:fragment.get(type)}}
+  try{const old=sessionStorage.getItem("shixu-key");if(old)return {type:"key",value:old}}catch{}
+  return null;
+}
+function clearLink(){
+  try{sessionStorage.removeItem("shixu-key")}catch{}
+  if(location.hash)history.replaceState(null,"",location.pathname+location.search);
+}
+function deviceHeaders(){const key=deviceKey();return key?{"X-Shixu-Device":key}:{}}
+
 const shapes={
   share:'<path d="M9 15l6-6m-4-2h6v6"/><path d="M9 7H5v12h12v-4"/>',
   settings:'<path d="M3 6h10m4 0h4M3 12h3m4 0h11M3 18h12m4 0h2"/><circle cx="15" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
@@ -26,7 +48,9 @@ const hhmm=ms=>{const m=Math.floor(Math.max(0,ms)/60000);return String(Math.floo
 const ticker=ms=>hhmm(ms)+":"+String(Math.floor(ms/1000)%60).padStart(2,"0");
 function tip(message){let el=document.querySelector(".toast");if(!el){el=document.createElement("div");el.className="toast";el.setAttribute("role","status");document.body.append(el)}el.textContent=message;clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.textContent="",3500)}
 async function api(path,body){
-  const r=await fetch("/api/"+path,{cache:"no-store",...(body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{})});
+  const headers=path.startsWith("public?")?{}:deviceHeaders();
+  if(body)headers["Content-Type"]="application/json";
+  const r=await fetch("/api/"+path,{cache:"no-store",headers,...(body?{method:"POST",body:JSON.stringify(body)}:{})});
   let data;try{data=await r.json()}catch{throw new Error("连接暂时不可用，请重试。")}if(!r.ok)throw Object.assign(new Error(data.error||"请求未完成。"),{status:r.status});return data;
 }
 async function refresh(render=true){
@@ -95,7 +119,7 @@ function draw(){
   const d=new Date(midnight(date));
   const title=new Intl.DateTimeFormat('zh-CN',{timeZone:"Asia/Shanghai",month:"long",day:"numeric"}).format(d);
   const weekday=new Intl.DateTimeFormat('zh-CN',{timeZone:"Asia/Shanghai",weekday:"long"}).format(d);
-  const nav=publicView?'<span class="quietnote">公开记录</span>':btn("share",ico("share")+'<span>分享</span>',"ghost")+btn("settings",ico("settings")+'<span class="navword">设置</span>',"ghost","设置");
+  const nav=publicView?'<span class="quietnote">公开记录</span>'+(!sharePage?btn("connect","连接我的设备","ghost"):''):btn("share",ico("share")+'<span>分享</span>',"ghost")+btn("settings",ico("settings")+'<span class="navword">设置</span>',"ghost","设置");
   const dateControl='<div class="date-controls">'+btn("prev",ico("left"),"iconbtn","上一天")+'<label class="calendar">'+ico("calendar")+'<input aria-label="查看日期" type="date" id="date" value="'+date+'" max="'+dayOf()+'"></label><button type="button" data-act="next" aria-label="下一天" '+(date===dayOf()?'disabled':'')+'>'+ico("right")+'</button></div>';
   const v=amounts(Date.now());app.innerHTML=header(nav)+'<main class="content '+(publicView?'public':'')+'"><div class="dateline"><div class="dategroup"><h1 class="daytitle">'+title+'</h1><span class="weekday">'+weekday+'</span></div>'+dateControl+'</div><div class="hero"><div class="summary"><div class="metrics">'+metrics(v)+'</div>'+controls()+'</div>'+gauge(v)+'</div>'+(publicView?'':timeline())+'<div class="lower">'+week()+recordList()+'</div></main>';app.setAttribute("aria-busy","false");
   const input=document.querySelector("#date");input.onchange=()=>input.value && choose(input.value);
@@ -130,7 +154,7 @@ function formDialog(r){
   form.onsubmit=e=>{e.preventDefault();const kind=form.querySelector("#kind").value;const f=timed?{start:Date.parse(form.querySelector("#from").value+"+08:00"),end:Date.parse(form.querySelector("#to").value+"+08:00")}:{day:form.querySelector("#entryday").value,minutes:Number(form.querySelector("#minutes").value)};change(r?"edit":"manual",{...f,kind,id:r?.id},r?"记录已更新":"已记入"+names[kind]+" "+f.minutes+" 分钟")};
 }
 function settings(){
-  showDialog("设置",'<form id="goals"><h3>每日目标</h3><div class="twocol">'+["work","study"].map(k=>'<div><label for="g-'+k+'">'+names[k]+'（分钟）</label><input id="g-'+k+'" type="number" min="0" max="1440" value="'+snapshot.goals[k]+'" required></div>').join('')+'</div><p class="quietnote">填 0 可关闭该项目标。</p><div class="dialogactions"><button class="solid">保存目标</button></div></form><details><summary>备份与迁移</summary><a class="linkbtn" href="/api/backup" download>下载完整备份</a>'+btn("import","从备份恢复")+btn("freeze",snapshot.frozen?"恢复记录":"设为只读")+'<input id="backupfile" type="file" accept=".json,application/json" hidden></details>');
+  showDialog("设置",'<form id="goals"><h3>每日目标</h3><div class="twocol">'+["work","study"].map(k=>'<div><label for="g-'+k+'">'+names[k]+'（分钟）</label><input id="g-'+k+'" type="number" min="0" max="1440" value="'+snapshot.goals[k]+'" required></div>').join('')+'</div><p class="quietnote">填 0 可关闭该项目标。</p><div class="dialogactions"><button class="solid">保存目标</button></div></form>'+(access?.mode==="sites"?btn("pair","连接另一台设备"):'')+'<details><summary>备份与迁移</summary>'+btn("download-backup","下载完整备份")+btn("import","从备份恢复")+btn("freeze",snapshot.frozen?"恢复记录":"设为只读")+'<input id="backupfile" type="file" accept=".json,application/json" hidden></details>');
   document.querySelector("#goals").onsubmit=e=>{e.preventDefault();change("goals",{goals:{work:Number(document.querySelector("#g-work").value),study:Number(document.querySelector("#g-study").value)}},"目标已保存")};
   document.querySelector("#backupfile").onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const backup=JSON.parse(await f.text());await change("restore",{backup},"备份已恢复")}catch{dialog.querySelector(".error").textContent="无法读取这个备份文件。"}};
 }
@@ -145,7 +169,12 @@ document.addEventListener("click",async e=>{const b=e.target.closest("button");i
   else if(a==="prev"||a==="next")choose(dayOf(midnight(date)+(a==="prev"?-DAY:DAY)));
   else if(a==="today")choose(dayOf());
   else if(a==="settings")settings();else if(a==="share")share();
-  else if(a==="copy"){const input=document.getElementById("shareurl");try{await navigator.clipboard.writeText(input.value);tip("公开链接已复制")}catch{input.select();tip("请复制已选中的链接")}}
+  else if(a==="connect"){connectDialog()}
+  else if(a==="pair"){await newPairLink(b)}
+  else if(a==="download-backup"){
+    try{const backup=await api("backup");const blob=new Blob([JSON.stringify(backup)],{type:"application/json"}),url=URL.createObjectURL(blob);const link=document.createElement("a");link.href=url;link.download="shixu-"+dayOf()+".json";link.click();setTimeout(()=>URL.revokeObjectURL(url),10000)}catch(err){dialog.querySelector(".error").textContent=err.message}
+  }
+  else if(a==="copy"){const input=document.getElementById("shareurl");try{await navigator.clipboard.writeText(input.value);tip("链接已复制")}catch{input.select();tip("请复制已选中的链接")}}
   else if(a==="manual")formDialog();
   else if(a.startsWith("preset-"))document.querySelector("#minutes").value=a.slice(7);
   else if(a.startsWith("edit-"))formDialog(snapshot.records.find(r=>r.id===a.slice(5)));
@@ -156,14 +185,52 @@ document.addEventListener("click",async e=>{const b=e.target.closest("button");i
   else if(a==="stop")change("stop",{},"已记入"+names[snapshot.active.kind]+" "+units(Date.now()-snapshot.active.start));
   else if(a==="work"||a==="study")change("start",{kind:a},"已开始"+names[a]);
 });
-function gate(){
-  app.innerHTML=header('<a href="/share">查看公开记录</a>')+'<main class="auth"><h1>我的时序</h1>'+(access.mode==="sites"?'<p>'+(access.signed?(access.claimed?'这个账户可以查看公开记录。':'请使用首次启用链接绑定你的账户。'):'登录后，继续记录工作与学习。')+'</p><a class="solid" target="_top" href="/signin-with-chatgpt?return_to=%2F">使用 ChatGPT 登录</a>':'<form id="login"><label for="password">站主密码</label><input id="password" type="password" autocomplete="current-password" required><button class="solid">登录</button></form>')+'<p class="error" role="alert"></p></main>';
-  const f=document.getElementById("login");if(f)f.onsubmit=async e=>{e.preventDefault();try{await api("login",{password:document.getElementById("password").value});await boot()}catch(err){document.querySelector(".auth .error").textContent=err.message}};
+function localLogin(){
+  app.innerHTML=header('<a href="/share">查看公开记录</a>')+'<main class="auth"><h1>我的时序</h1><form id="login"><label for="password">站主密码</label><input id="password" type="password" autocomplete="current-password" required><button class="solid">登录</button></form><p class="error" role="alert"></p></main>';
+  document.getElementById("login").onsubmit=async e=>{e.preventDefault();try{await api("login",{password:document.getElementById("password").value});await boot()}catch(err){document.querySelector(".auth .error").textContent=err.message}};
+}
+function connectDialog(){
+  showDialog("连接我的设备",'<form id="connect-form"><label for="connect-url">个人记录链接</label><input id="connect-url" type="url" required autocomplete="off" placeholder="粘贴链接"><p class="quietnote">可在已连接设备的「设置」里获取。</p><div class="dialogactions"><button class="solid">连接</button></div></form>');
+  document.querySelector("#connect-form").onsubmit=async e=>{
+    e.preventDefault();
+    const error=dialog.querySelector(".error");
+    try{
+      const link=new URL(document.getElementById("connect-url").value.trim());
+      const fragment=new URLSearchParams(link.hash.slice(1));
+      if(link.origin!==location.origin || !["key","pair"].some(type=>fragment.get(type)))throw new Error("请粘贴完整的个人记录或设备连接链接。");
+      history.replaceState(null,"",location.pathname+location.search+link.hash);dialog.close();await boot();
+    }catch(err){error.textContent=err.message}
+  };
+}
+async function newPairLink(button){
+  button.disabled=true;
+  try{
+    const result=await api("pair",{});
+    showDialog("连接另一台设备",'<label for="shareurl">一次性记录链接</label><input id="shareurl" readonly><p class="quietnote">在你自己的手机或电脑上打开。链接 24 小时内有效，可连接一台设备。</p><div class="dialogactions">'+btn("copy","复制设备链接","solid")+'</div>');
+    document.getElementById("shareurl").value=location.origin+"/#pair="+result.code;
+  }catch(err){if(dialog)dialog.querySelector(".error").textContent=err.message;button.disabled=false}
 }
 async function boot(){try{
-  if(!publicView){access=await api("access");const key=sessionStorage.getItem("shixu-key");if(key && !access.owner && (access.signed||access.mode==="self")){await api(access.mode==="self"?"login":"claim",access.mode==="self"?{password:key}:{key});access=await api("access");}
-    if(access.owner)sessionStorage.removeItem("shixu-key");else {gate();return}}
-  await refresh(false);draw();
+  publicView=sharePage;
+  let linkError;
+  if(!sharePage){
+    access=await api("access");
+    const link=pendingLink();
+    if(link){
+      try{
+        if(!access.owner || access.mode==="sites" && !deviceKey()){
+          if(access.mode==="self"){await api("login",{password:link.value})}
+          else{rememberDevice();await api("claim",{[link.type]:link.value})}
+          access=await api("access");
+          if(!access.owner)throw new Error("设备连接尚未完成，请重新打开个人链接。");
+        }
+        clearLink();
+      }catch(err){if(err.status!==403)throw err;clearLink();linkError=err.message}
+    }
+    if(!access.owner && access.mode==="self"){localLogin();return}
+    publicView=!access.owner;
+  }
+  await refresh(false);draw();if(linkError){connectDialog();dialog.querySelector('.error').textContent=linkError}
 }catch(e){app.innerHTML=header()+'<main class="auth"><h1>暂时无法打开记录</h1><p id="boot-error"></p>'+btn("retry","重试","solid")+'</main>';document.getElementById("boot-error").textContent=e.message}}
 setInterval(tick,1000);function sync(){if(!document.hidden&&!busy&&!dialog&&snapshot)refresh().catch(()=>{})}
 setInterval(sync,20000);window.addEventListener("focus",sync);document.addEventListener("visibilitychange",sync);boot();
