@@ -1,0 +1,1 @@
+export default function Home(){return <><div id="app" aria-busy="true"><div className="loading">正在读取时序…</div></div><script type="module" src="/ui.js"></script></>}

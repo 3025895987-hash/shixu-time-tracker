@@ -1,0 +1,13 @@
+services:
+  shixu:
+    build: .
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      OWNER_PASSWORD: ${OWNER_PASSWORD:?Please set OWNER_PASSWORD}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
+    volumes:
+      - shixu-data:/data
+    restart: unless-stopped
+volumes:
+  shixu-data:
