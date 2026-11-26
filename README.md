@@ -1,8 +1,19 @@
 # 时序
 
-工作和学习时长记录。个人记录页位于 `/`，只读展示页位于 `/share`。按北京时间汇总。补记数据保留原始日期和分钟，计时记录保留毫秒精度的起止时间。
+时序用来记录每天工作了多久、学习了多久。你可以在电脑上开始工作，用手机结束同一段计时。忘了点开始，也可以事后补记。
+
+[查看公开展示页](https://time-ledger.mildaphid8.chatgpt.site/share) · 无需登录，可查看每日工作和学习时长，以及最近七天的变化。
+
+<p>
+  <a href="docs/screenshots/desktop-public.png"><img src="docs/screenshots/desktop-public.png" width="592" alt="电脑公开展示页，当天工作 2 小时 8 分、学习 45 分，下方展示近七天的趋势和每日汇总"></a>
+  <a href="docs/screenshots/mobile-timer.png"><img src="docs/screenshots/mobile-timer.png" width="192" alt="手机记录页，当天已学习 12 分钟，可一键开始工作、开始学习或补记"></a>
+</p>
+
+电脑端展示每日汇总，手机端随手计时。截图使用示例记录，点击可查看大图。
 
 ## 本机使用
+
+个人记录页位于 `/`，只读展示页位于 `/share`。按北京时间汇总。补记数据保留原始日期和分钟，计时记录保留毫秒精度的起止时间。
 
 需要 Node.js 22.13 或更新版。在项目目录运行 `node selfhost/server.mjs --local`，打开生成的 `outputs/local-data/打开我的时序.url`。本地数据和登录密钥保存在该目录。默认监听 127.0.0.1:4186。这个快捷方式用于个人登录。
 
